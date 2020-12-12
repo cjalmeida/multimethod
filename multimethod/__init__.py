@@ -8,6 +8,7 @@ import typing
 from typing import Callable, Iterable, Iterator, Mapping, Union
 
 __version__ = '1.4'
+Empty = types.new_class('*')
 
 
 def groupby(func: Callable, values: Iterable) -> dict:
@@ -75,9 +76,14 @@ class subtype(type):
         if self.__origin__ is typing.Union:
             return issubclass(subclass, self.__args__)
         nargs = len(self.__args__)
-        if self.__origin__ is tuple and self.__args__[-1:] == (Ellipsis,):
-            nargs -= 1
-            args = args[:nargs]
+        if self.__origin__ is tuple:
+            if self.__args__[-1:] == (Ellipsis,):
+                if args == (Empty,):
+                    return issubclass(origin, self.__origin__)
+                nargs -= 1
+                args = args[:nargs]
+        elif args == (Empty,):
+            return issubclass(origin, self.__origin__)
         return (  # check args first to avoid a recursion error in ABCMeta
             len(args) == nargs
             and issubclass(origin, self.__origin__)
@@ -228,19 +234,20 @@ for atomic in (Iterator, str, bytes):
 @multimethod  # type: ignore[no-redef]
 def get_type(arg: tuple):
     """Return generic type checking all values."""
-    return subtype(type(arg), *map(get_type, arg))
+    return subtype(type(arg), *(list(map(get_type, arg)) or [Empty]))
 
 
 @multimethod  # type: ignore[no-redef]
 def get_type(arg: Mapping):
     """Return generic type checking first item."""
-    return subtype(type(arg), *map(get_type, next(iter(arg.items()), ())))
+    items = (map(get_type, item) for item in arg.items())
+    return subtype(type(arg), *next(items, [Empty]))
 
 
 @multimethod  # type: ignore[no-redef]
 def get_type(arg: Iterable):
     """Return generic type checking first value."""
-    return subtype(type(arg), *map(get_type, itertools.islice(arg, 1)))
+    return subtype(type(arg), next(map(get_type, arg), Empty))
 
 
 def isa(*types) -> Callable:
